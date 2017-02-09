@@ -1,0 +1,8 @@
+1) Print the contents of a file
+
+Scanner input = new Scanner(new File("somefile.txt"));
+
+		while (input.hasNextLine())
+		{
+		   System.out.println(input.nextLine());
+		}
