@@ -31,36 +31,41 @@ public class Client {
 		//Random Number Generation
 		byte[] r_A = randomNumber();
 		
-		//Key generation for the Client
+		//Set path to the key here
 		String absPath ="";
 		
-		PublicKey keyPublic = generatePublicKey(ALGORITHM); //Public component of the key pair
-		PrivateKey keyPrivate = generatePrivateKey(ALGORITHM); //Private component of the key pair
-		
-		
-		//Saving Client's Key Pair to File
-		saveKeyPair(keyPrivate,keyPublic, absPath);
+		//Loading Server's Public Key("s_public.key") from file	
+		File filePublicKey = new File(absPath + args[5]);
+		FileInputStream fiss = new FileInputStream(absPath + args[5]);
+		byte[] encodedPublicKey = new byte[(int) filePublicKey.length()];
+		fiss.read(encodedPublicKey);
+		fiss.close();
 
 		
-		//Loading Server's Public Key from file|||RECHECK THIS
-		File filePublicKey = new File(absPath + "s_public.key");
-		FileInputStream fis = new FileInputStream(absPath + "s_public.key");
-		byte[] encodedPublicKey = new byte[(int) filePublicKey.length()];
-		fis.read(encodedPublicKey);
-		fis.close();
+		//Loading Clients's Private Key("c_private.key") from file
+		File filePrivateKey = new File(absPath + args[4]);
+		FileInputStream fisc = new FileInputStream(absPath + args[4]);
+		byte[] encodedPrivateKey = new byte[(int) filePrivateKey.length()];
+		fisc.read(encodedPrivateKey);
+		fisc.close();
 		
-		//Deserializing the public key
-		PublicKey s_publicKey = deserializePublicKey(encodedPublicKey, ALGORITHM);
-		System.out.print(s_publicKey.toString());
+		
+		// Converting from byte arrays to keys
+		KeyFactory kf = KeyFactory.getInstance("RSA"); 
+		PublicKey s_publicKey = kf.generatePublic(new X509EncodedKeySpec(encodedPublicKey));
+		PrivateKey c_privateKey = kf.generatePrivate(new PKCS8EncodedKeySpec(encodedPrivateKey));
+
+		
 		
 		//Encrypting the random number with public key of the SERVER
-		byte[] cypherNumber = encrypt(r_A, s_publicKey); //// change keyPublic to the public key of server on file
+		byte[] cypherNumber = encrypt(r_A, s_publicKey); //Encrypting with the server's public key
+		
 		
 		//Signing the random number
-		byte[] signedNumber = sign(r_A, keyPrivate);
+		byte[] signedNumber = sign(r_A, c_privateKey);
 		
-		//Send the encrypted number and the signed number to the server
-		sendToServer(s_ip, s_port, cypherNumber,signedNumber);
+		//Send the encrypted number and the signed number to the server and reading the encrypted number(r_B) and signature from server
+		sendReadServer(s_ip, s_port, cypherNumber,signedNumber);
 		
 		
 	}
@@ -74,53 +79,9 @@ public class Client {
 		return ivInBytes;
 		
 	}
-	
-	
-	public static PublicKey generatePublicKey(String ALGORITHM) throws NoSuchAlgorithmException, InvalidKeySpecException{
 		
-		KeyFactory keyFactory = KeyFactory.getInstance(ALGORITHM); //Specify the algorithm for key pair generation
-		byte[] encodedPublicKey = null;
-		X509EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(encodedPublicKey);
-		PublicKey publicKey = keyFactory.generatePublic(publicKeySpec);
-		System.out.println(publicKey.toString());
-		return publicKey;
-	}
 	
-	public static PrivateKey generatePrivateKey(String ALGORITHM) throws NoSuchAlgorithmException, InvalidKeySpecException{
-		
-		KeyFactory keyFactory = KeyFactory.getInstance(ALGORITHM); //Specify the algorithm for key pair generation
-		byte[] encodedPrivateKey = null;
-		PKCS8EncodedKeySpec privateKeySpec = new PKCS8EncodedKeySpec(encodedPrivateKey);
-		PrivateKey privateKey =	keyFactory.generatePrivate(privateKeySpec);
-		return privateKey;
-	}
-	
-	public static void saveKeyPair(PrivateKey prikey, PublicKey pubkey, String path) throws IOException{
-		FileOutputStream pbf = new FileOutputStream(path + "c_public.key"); //Writing client's public key to file
-		byte[] kPub = pubkey.getEncoded();
-		pbf.write(kPub);
-		pbf.close();
-		
-		FileOutputStream prf = new FileOutputStream(path + "c_private.key"); //Writing client's private key to file
-		byte[] kPri = prikey.getEncoded();
-		prf.write(kPri);
-		prf.close();
-	}
-	
-	
-    public static PublicKey deserializePublicKey(byte[] keyData, String algorithm) { 
-        X509EncodedKeySpec pubSpec = new X509EncodedKeySpec(keyData); 
-        try { 
-            KeyFactory keyFactory = KeyFactory.getInstance(algorithm); 
-            return keyFactory.generatePublic(pubSpec); 
-        } catch (GeneralSecurityException e) { 
-            throw new IllegalArgumentException("provided data could not be converted to a PublicKey for algorithm " 
-                    + algorithm, e); 
-        } 
-    }
-
-    
-    public static byte[] encrypt(byte[] rNum,PublicKey pubKey) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException{
+	public static byte[] encrypt(byte[] rNum,PublicKey pubKey) throws NoSuchAlgorithmException, NoSuchPaddingException, InvalidKeyException, IllegalBlockSizeException, BadPaddingException{
 		Cipher cipher = Cipher.getInstance("RSA"); //The algorithm to be used
 		cipher.init(Cipher.ENCRYPT_MODE, pubKey); //Initialize the cipher with the public key 
 	    return cipher.doFinal(rNum);//	Return the encrypted number
@@ -137,17 +98,22 @@ public class Client {
 	}
 
 	
-	public static void sendToServer(String serverIP, int serverPort, byte[] cypherN, byte[] signedN) throws UnknownHostException, IOException{
+	public static void sendReadServer(String serverIP, int serverPort, byte[] cypherN, byte[] signedN) throws UnknownHostException, IOException{
 		Socket clientSocket = new Socket(serverIP,serverPort); //Opens communication at the Server IP and Server Port as set in the argument list
-        DataOutputStream out = new DataOutputStream(clientSocket.getOutputStream());
-        String cypherNS = cypherN.toString();
+        
+		DataOutputStream out = new DataOutputStream(clientSocket.getOutputStream());
+        DataInputStream in = new DataInputStream(clientSocket.getInputStream());//Create a new DataInputStream Object to read the encrypted message and the sign sent from server
+        
+        String cypherNS = cypherN.toString(); //generate string equivalents of cypherN and signedN to write to out data stream using UTF
         String signedNS = signedN.toString();
+        System.out.print("\nSending to Server: \n");
+        out.writeUTF(cypherNS); //Sending string to out Data Stream
+        out.writeUTF(signedNS);//Sending string to out Data Stream
         
-        out.writeUTF(cypherNS);
-        //System.out.print(cypherNS + "\n");
+        String cypherSer = in.readUTF();//encrypted message from the server
+        System.out.print("Message from client:" + cypherSer);
+        String signedSer = in.readUTF();//signature from the server
         
-        out.writeUTF(signedNS);
-        //System.out.print(signedNS);
 	}
 		
 }
